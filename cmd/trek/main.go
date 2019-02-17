@@ -53,12 +53,13 @@ var (
 )
 
 func init() {
+	// Add short flags?
 	flag.BoolVar(&printVersion, "version", false, "Show version and quit")
 	flag.StringVar(&kubeCfgFile, "config", "", "Location of kubecfg file for access to gimbal system kubernetes api, defaults to service account tokens")
 	flag.StringVar(&namespace, "n", "", "Namespace")
 	flag.StringVar(&fromPod, "from", "", "From pod")
-	flag.StringVar(&protocol, "proto", "", "Protocol") // Maybe a TODO?
-	flag.StringVar(&port, "port", "", "Port")          // Or... take a list of pod / protocol pairs?
+	flag.StringVar(&protocol, "proto", "TCP", "Protocol")
+	flag.StringVar(&port, "port", "", "Port")
 	flag.BoolVar(&debug, "debug", false, "Enable debug logging.")
 	flag.BoolVar(&explain, "explain", false, "Explain decision.")
 	flag.Parse()
@@ -138,39 +139,28 @@ func main() {
 						Policy: p,
 						Reason: reason,
 					}
-					targetService.AllowedByPolicies = append(targetService.AllowedByPolicies, pr)
+					if !k8s.AllowedByPorts(rule.Ports, targetService) {
+						pr := k8s.PolicyReason{
+							Policy: p,
+							Reason: "Blocked by Ports",
+						}
+						targetService.BlockedByPolicies = append(targetService.BlockedByPolicies, pr)
+					} else {
+						targetService.AllowedByPolicies = append(targetService.AllowedByPolicies, pr)
+					}
 				}
+			}
 
-			}
-			if !k8s.AllowedByPorts(rule.Ports, targetService) {
-				pr := k8s.PolicyReason{
-					Policy: p,
-					Reason: "Blocked by Ports",
-				}
-				targetService.BlockedByPolicies = append(targetService.BlockedByPolicies, pr)
-			}
 		}
 		// fmt.Println(p.Spec.Egress)
 	}
 
-	// fmt.Println("\nAFFECTED BY \n=====================================")
-	// for _, p := range targetService.AffectedByPolicies {
-	// 	fmt.Println(p.Name, "\n")
-	// }
-
-	// fmt.Println("\nALLOWED BY \n=====================================\n")
-	// for _, p := range targetService.AllowedByPolicies {
-	// 	fmt.Println(p.Name, "\n")
-	// }
-
-	// fmt.Println("\nBLOCKED BY \n=====================================\n")
-	// for _, p := range targetService.BlockedByPolicies {
-	// 	fmt.Println(p.Name, "\n")
-	// }
-
-	if len(targetService.AllowedByPolicies) > 0 {
+	if len(targetService.AllowedByPolicies) > 0 || len(targetService.AffectedByPolicies) == 0 {
 		fmt.Println("Allowed")
 		if explain {
+			if len(targetService.AffectedByPolicies) == 0 {
+				fmt.Println("-", "Not affected by any policies")
+			}
 			for _, p := range targetService.AllowedByPolicies {
 				fmt.Println("- ", p.Policy.Name, ":", p.Reason, "\n")
 			}
